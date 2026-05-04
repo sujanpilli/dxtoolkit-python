@@ -26,6 +26,9 @@ class MockEngine:
     def getEngineName(self):
         return self._engine_name
 
+    def getTimezone(self):
+        return 'UTC'
+
     def getJSONResult(self, operation):
         # Return minimal payloads based on operation
         if operation == 'resources/json/delphix/analytics':
