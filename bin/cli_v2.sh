@@ -21,7 +21,7 @@ Usage:
   [--address <fqdn_or_ip>] [--port <port>] [--protocol <http|https>] [--preserve-output] [-h]
 
 Required dxtoolkit scripts in -b:
-  dx_config.pl, dx_ctl_network_tests.pl, dx_ctl_bundle.pl, dx_get_analytics.pl,
+  dx_config.py, dx_ctl_network_tests.pl, dx_ctl_bundle.pl, dx_get_analytics.pl,
   dx_get_capacity.pl, dx_get_appliance.pl, dx_get_storage_tests.pl, dx_get_config.pl
 
 Notes:
@@ -61,7 +61,7 @@ echo "Dxtoolkit Path: ${DXLOC}"
 
 # ---- check dxtoolkit files exist (same list as original) ---------------------
 need_file() { [[ -f "$1" ]] || { echo "Missing $1"; exit 1; }; }
-need_file "${DXLOC}/dx_config.pl"
+need_file "${DXLOC}/dx_config.py"
 need_file "${DXLOC}/dx_ctl_network_tests.pl"
 need_file "${DXLOC}/dx_ctl_bundle.pl"
 need_file "${DXLOC}/dx_get_analytics.pl"
@@ -99,7 +99,7 @@ trap cleanup EXIT
 
 # Export existing config to CSV if present (we'll merge rows into CSV)
 if [[ -f "${DCC}" ]]; then
-  perl "${DXLOC}/dx_config.pl" -convert tocsv -configfile "${DCC}" -csvfile "${CSV}" >/dev/null || {
+  python3 "${DXLOC}/dx_config.py" -convert tocsv -configfile "${DCC}" -csvfile "${CSV}" >/dev/null || {
     echo "dx_config tocsv failed"; exit 1;
   }
 else
@@ -154,7 +154,7 @@ if [[ -f "${DCC}" ]]; then
   cp -p "${DCC}" "${BACKUP}"
 fi
 # Write merged CSV back to JSON config for dxtoolkit to use during this run
-perl "${DXLOC}/dx_config.pl" -convert todxconf -configfile "${DCC}" -csvfile "${CSV}" >/dev/null
+python3 "${DXLOC}/dx_config.py" -convert todxconf -configfile "${DCC}" -csvfile "${CSV}" >/dev/null
 
 # ---- build -d flags used by dx_* (same as original, but normalized) ----------
 if [[ "${DE_READ}" == "all" ]]; then
