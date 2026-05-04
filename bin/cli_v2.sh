@@ -21,8 +21,8 @@ Usage:
   [--address <fqdn_or_ip>] [--port <port>] [--protocol <http|https>] [--preserve-output] [-h]
 
 Required dxtoolkit scripts in -b:
-  dx_config.py, dx_ctl_network_tests.pl, dx_ctl_bundle.pl, dx_get_analytics.pl,
-  dx_get_capacity.pl, dx_get_appliance.pl, dx_get_storage_tests.pl, dx_get_config.pl
+  dx_config.py, dx_ctl_network_tests.py, dx_ctl_bundle.py, dx_get_analytics.py,
+  dx_get_capacity.py, dx_get_appliance.py, dx_get_storage_tests.py, dx_get_config.py
 
 Notes:
   • Set timeouts to 600 in your dxtools.conf entries for long-running calls.
@@ -62,13 +62,13 @@ echo "Dxtoolkit Path: ${DXLOC}"
 # ---- check dxtoolkit files exist (same list as original) ---------------------
 need_file() { [[ -f "$1" ]] || { echo "Missing $1"; exit 1; }; }
 need_file "${DXLOC}/dx_config.py"
-need_file "${DXLOC}/dx_ctl_network_tests.pl"
-need_file "${DXLOC}/dx_ctl_bundle.pl"
-need_file "${DXLOC}/dx_get_analytics.pl"
-need_file "${DXLOC}/dx_get_capacity.pl"
-need_file "${DXLOC}/dx_get_appliance.pl"
-need_file "${DXLOC}/dx_get_storage_tests.pl"
-need_file "${DXLOC}/dx_get_config.pl"
+need_file "${DXLOC}/dx_ctl_network_tests.py"
+need_file "${DXLOC}/dx_ctl_bundle.py"
+need_file "${DXLOC}/dx_get_analytics.py"
+need_file "${DXLOC}/dx_get_capacity.py"
+need_file "${DXLOC}/dx_get_appliance.py"
+need_file "${DXLOC}/dx_get_storage_tests.py"
+need_file "${DXLOC}/dx_get_config.py"
 
 # ---- prepare output dirs -----------------------------------------------------
 DATE="$(date '+%Y-%m-%d')"
@@ -168,16 +168,16 @@ OLDPATH="${PATH}"; export PATH="${DXLOC}:${PATH}"
 
 # ---- run tests (unchanged logic, but clearer logging) ------------------------
 echo "Run a network latency test on all environments"
-#perl "${DXLOC}/dx_ctl_network_tests.pl" ${DE} -type latency -remoteaddr all
+#python3 "${DXLOC}/dx_ctl_network_tests.py" ${DE} -type latency -remoteaddr all
 
 echo "Run a network throughput test on all environments"
-#perl "${DXLOC}/dx_ctl_network_tests.pl" ${DE} -type throughput -remoteaddr all
+#python3 "${DXLOC}/dx_ctl_network_tests.py" ${DE} -type throughput -remoteaddr all
 
 echo "Gathering network latency results -> ${MISCDIR}/${BASE}_NL.csv"
-#perl "${DXLOC}/dx_get_network_tests.pl" ${DE} -last -type latency -remoteaddr all -format csv > "${MISCDIR}/${BASE}_NL.csv"
+#python3 "${DXLOC}/dx_get_network_tests.py" ${DE} -last -type latency -remoteaddr all -format csv > "${MISCDIR}/${BASE}_NL.csv"
 
 echo "Gathering network throughput results -> ${MISCDIR}/${BASE}_NT.csv"
-#perl "${DXLOC}/dx_get_network_tests.pl" ${DE} -last -type throughput -remoteaddr all -format csv > "${MISCDIR}/${BASE}_NT.csv"
+#python3 "${DXLOC}/dx_get_network_tests.py" ${DE} -last -type throughput -remoteaddr all -format csv > "${MISCDIR}/${BASE}_NT.csv"
 
 echo "Gathering analytics (${DE_TYPE})"
 case "${DE_TYPE}" in
@@ -186,19 +186,19 @@ case "${DE_TYPE}" in
   both) ARG_TYPES="cpu,disk,iscsi,nfs,network" ;;
   *)    echo "Invalid -t (use win|unix|both)"; exit 1 ;;
 esac
-perl "${DXLOC}/dx_get_analytics.pl" ${DE} -i 60 -outdir "${PERFDATA}" -type "${ARG_TYPES}"     # :contentReference[oaicite:3]{index=3}
+python3 "${DXLOC}/dx_get_analytics.py" ${DE} -i 60 -outdir "${PERFDATA}" -type "${ARG_TYPES}"     # :contentReference[oaicite:3]{index=3}
 
 echo "Gathering capacity -> ${MISCDIR}/${BASE}_capacity.csv"
-perl "${DXLOC}/dx_get_capacity.pl" ${DE} -unvirt -format csv > "${MISCDIR}/${BASE}_capacity.csv"
+python3 "${DXLOC}/dx_get_capacity.py" ${DE} -unvirt -format csv > "${MISCDIR}/${BASE}_capacity.csv"
 
 echo "Gathering appliance -> ${MISCDIR}/${BASE}_appliance.csv"
-perl "${DXLOC}/dx_get_appliance.pl" ${DE} -format csv > "${MISCDIR}/${BASE}_appliance.csv"
+python3 "${DXLOC}/dx_get_appliance.py" ${DE} -format csv > "${MISCDIR}/${BASE}_appliance.csv"
 
 echo "Gathering IORC (sysadmin) -> ${MISCDIR}/"
-perl "${DXLOC}/dx_get_storage_tests.pl" ${DESYS} -testid last -iorc "${MISCDIR}"               # :contentReference[oaicite:4]{index=4}
+python3 "${DXLOC}/dx_get_storage_tests.py" ${DESYS} -testid last -iorc "${MISCDIR}"               # :contentReference[oaicite:4]{index=4}
 
 echo "Gathering system configuration (sysadmin) -> ${MISCDIR}/${BASE}_config.csv"
-perl "${DXLOC}/dx_get_config.pl" ${DESYS} -format csv | sed "s/${SYS_ALIAS}/${BASE}/" > "${MISCDIR}/${BASE}_config.csv"
+python3 "${DXLOC}/dx_get_config.py" ${DESYS} -format csv | sed "s/${SYS_ALIAS}/${BASE}/" > "${MISCDIR}/${BASE}_config.csv"
 
 # ---- restore PATH and config; trap handles final config restore --------------
 export PATH="${OLDPATH}"
