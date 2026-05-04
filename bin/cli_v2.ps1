@@ -125,21 +125,12 @@ function Require-Tool {
     [string]$Name
   )
 
-  $pyPath = Join-Path $DXLOC ("$Name.py")
-  $binPath = Join-Path $DXLOC $Name
-  if ((Test-Path -LiteralPath $pyPath) -or (Test-Path -LiteralPath $binPath)) {
+  $exePath = Join-Path $DXLOC ("$Name.exe")
+  if (Test-Path -LiteralPath $exePath) {
     return
   }
 
-  throw "Missing $DXLOC/$Name[.py]"
-}
-
-function Get-PythonCommand {
-  $py = Get-Command python3 -ErrorAction SilentlyContinue
-  if ($py) { return $py.Source }
-  $py = Get-Command python -ErrorAction SilentlyContinue
-  if ($py) { return $py.Source }
-  return $null
+  throw "Missing $DXLOC/$Name.exe"
 }
 
 function Invoke-Tool {
@@ -151,26 +142,17 @@ function Invoke-Tool {
     [string]$StdoutFile
   )
 
-  $pyPath = Join-Path $DXLOC ("$Name.py")
-  $binPath = Join-Path $DXLOC $Name
+  $exePath = Join-Path $DXLOC ("$Name.exe")
 
   $exec = $null
   $argsToRun = @()
 
-  if (Test-Path -LiteralPath $pyPath) {
-    $pythonCmd = Get-PythonCommand
-    if (-not $pythonCmd) {
-      throw 'python3/python was not found in PATH'
-    }
-    $exec = $pythonCmd
-    $argsToRun = @($pyPath) + $ToolArgs
-  }
-  elseif (Test-Path -LiteralPath $binPath) {
-    $exec = $binPath
+  if (Test-Path -LiteralPath $exePath) {
+    $exec = $exePath
     $argsToRun = $ToolArgs
   }
   else {
-    throw "Missing $DXLOC/$Name[.py]"
+    throw "Missing $DXLOC/$Name.exe"
   }
 
   if ($StdoutFile) {
