@@ -56,13 +56,17 @@ jobs:
         run: |
           if command -v apt-get &>/dev/null; then
             apt-get update -y && apt-get install -y python3 python3-pip binutils
+            python3 -m pip install --break-system-packages --upgrade pip
+            pip3 install --break-system-packages -r requirements.txt pytest
           elif command -v dnf &>/dev/null; then
             dnf install -y python3 python3-pip binutils
+            python3 -m pip install --upgrade pip
+            pip3 install -r requirements.txt pytest
           else
             yum install -y python3 python3-pip binutils
+            python3 -m pip install --upgrade pip
+            pip3 install -r requirements.txt pytest
           fi
-          python3 -m pip install --upgrade pip
-          pip3 install -r requirements.txt pyinstaller pytest
 
       - name: Set up Python
         if: matrix.mode != 'pyinstaller-linux'
@@ -79,6 +83,7 @@ jobs:
           pip install pytest
 
       - name: Run Python tests
+        shell: bash
         run: |
           python3 -m pytest -q test/test_python_cli.py test/test_json_outputs.py test/test_dx_get_scripts.py 2>/dev/null || \
           pytest -q test/test_python_cli.py test/test_json_outputs.py test/test_dx_get_scripts.py

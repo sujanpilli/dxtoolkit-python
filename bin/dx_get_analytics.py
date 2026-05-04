@@ -99,6 +99,8 @@ def main(argv):
 
     # Validate required options early with friendly messages
     if not args.config_file:
+        args.config_file = os.environ.get('DXTOOLKIT_CONF')
+    if not args.config_file:
         print("ERROR: config file is required (-configfile)")
         return 1
     if not os.path.exists(args.config_file):
