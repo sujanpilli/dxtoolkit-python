@@ -38,11 +38,6 @@ jobs:
           - target: Windows
             runner: windows-latest
             mode: pyinstaller-windows
-          - target: osx-m1
-            runner: macos-14
-            mode: pyinstaller-macos
-            platform: osx-m1
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -105,21 +100,6 @@ jobs:
               "$script"
           done
           tar -czf "dxtoolkit2-ci-${{ matrix.target }}-installer.tar.gz" -C dist/linux .
-
-      - name: Build Python binaries (macOS)
-        if: matrix.mode == 'pyinstaller-macos'
-        shell: bash
-        run: |
-          mkdir -p "dist/${{ matrix.platform }}" "build/pyinstaller/${{ matrix.platform }}"
-          for script in bin/*.py; do
-            python -m PyInstaller --onefile \
-              --paths lib/py \
-              --distpath "dist/${{ matrix.platform }}" \
-              --workpath "build/pyinstaller/${{ matrix.platform }}" \
-              --specpath "build/pyinstaller/${{ matrix.platform }}" \
-              "$script"
-          done
-          tar -czf "dxtoolkit2-ci-${{ matrix.target }}-installer.tar.gz" -C "dist/${{ matrix.platform }}" .
 
       - name: Build Python binaries (Windows)
         if: matrix.mode == 'pyinstaller-windows'

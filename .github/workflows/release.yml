@@ -42,12 +42,6 @@ jobs:
             runner: windows-latest
             mode: pyinstaller-windows
             asset_suffix: win64-installer.zip
-          - target: osx-m1
-            runner: macos-14
-            mode: pyinstaller-macos
-            platform: osx-m1
-            asset_suffix: osx-m1.tar.gz
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,22 +97,6 @@ jobs:
               "$script"
           done
           tar -czf "$asset" -C dist/linux .
-
-      - name: Build and package (macOS)
-        if: matrix.mode == 'pyinstaller-macos'
-        shell: bash
-        run: |
-          asset="dxtoolkit2-${GITHUB_REF_NAME}-${{ matrix.asset_suffix }}"
-          mkdir -p "dist/${{ matrix.platform }}" "build/pyinstaller/${{ matrix.platform }}"
-          for script in bin/*.py; do
-            python -m PyInstaller --onefile \
-              --paths lib/py \
-              --distpath "dist/${{ matrix.platform }}" \
-              --workpath "build/pyinstaller/${{ matrix.platform }}" \
-              --specpath "build/pyinstaller/${{ matrix.platform }}" \
-              "$script"
-          done
-          tar -czf "$asset" -C "dist/${{ matrix.platform }}" .
 
       - name: Build and package (Windows)
         if: matrix.mode == 'pyinstaller-windows'
