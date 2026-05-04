@@ -19,6 +19,7 @@ from storage_obj import StorageObj
 from databases import Databases
 from group_obj import GroupObj
 from namespace_obj import NamespaceObj
+from dx_config import main as dx_config_main
 
 
 class TestToolkitHelpers(unittest.TestCase):
@@ -228,6 +229,65 @@ class TestStorageObj(unittest.TestCase):
         self.assertEqual(st.getLatencyGrade('ST-1', testname), 'A')
         self.assertAlmostEqual(float(st.getLatencyAvg('ST-1', testname)), 30.5, places=1)
         self.assertEqual(st.getTestIOPS('ST-1', testname), 500)
+
+
+class TestDxConfigCli(unittest.TestCase):
+    """Test dx_config.py conversion parity."""
+
+    def test_tocsv_from_conf(self):
+        conf_fd, conf_path = tempfile.mkstemp(suffix='.conf')
+        os.close(conf_fd)
+        csv_fd, csv_path = tempfile.mkstemp(suffix='.csv')
+        os.close(csv_fd)
+
+        payload = {
+            "data": [
+                {
+                    "hostname": "eng1",
+                    "ip_address": "1.2.3.4",
+                    "port": 443,
+                    "username": "admin",
+                    "password": "secret",
+                    "default": "true",
+                    "protocol": "https",
+                }
+            ]
+        }
+        with open(conf_path, 'w') as fh:
+            json.dump(payload, fh)
+
+        rc = dx_config_main(['-convert', 'tocsv', '-csvfile', csv_path, '-configfile', conf_path])
+        self.assertEqual(rc, 0)
+
+        with open(csv_path, 'r') as fh:
+            lines = fh.readlines()
+        self.assertTrue(lines[0].startswith('# engine nick name'))
+        self.assertIn('eng1,1.2.3.4,443,admin,secret,true,https', lines[1])
+
+        os.remove(conf_path)
+        os.remove(csv_path)
+
+    def test_todxconf_from_csv(self):
+        conf_fd, conf_path = tempfile.mkstemp(suffix='.conf')
+        os.close(conf_fd)
+        csv_fd, csv_path = tempfile.mkstemp(suffix='.csv')
+        os.close(csv_fd)
+
+        with open(csv_path, 'w') as fh:
+            fh.write('# header\n')
+            fh.write('eng2,2.3.4.5,80,admin,pass,false,http,,\n')
+
+        rc = dx_config_main(['-convert', 'todxconf', '-csvfile', csv_path, '-configfile', conf_path])
+        self.assertEqual(rc, 0)
+
+        with open(conf_path, 'r') as fh:
+            data = json.load(fh)
+        self.assertEqual(data['data'][0]['hostname'], 'eng2')
+        self.assertEqual(data['data'][0]['ip_address'], '2.3.4.5')
+        self.assertEqual(str(data['data'][0]['port']), '80')
+
+        os.remove(conf_path)
+        os.remove(csv_path)
 
 
 if __name__ == '__main__':
