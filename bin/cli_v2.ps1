@@ -23,6 +23,20 @@ function Show-Help {
   Write-Output '  - Set timeouts to 600 in your dxtools.conf entries for long-running calls.'
 }
 
+function Get-ItemCount {
+  param($Value)
+
+  if ($null -eq $Value) {
+    return 0
+  }
+
+  $n = 0
+  foreach ($item in $Value) {
+    $n += 1
+  }
+  return $n
+}
+
 function Parse-Arguments {
   param([string[]]$RawArgs)
 
@@ -40,65 +54,66 @@ function Parse-Arguments {
     SHOW_HELP = $false
   }
 
-  if (-not $RawArgs -or $RawArgs.Count -eq 0) {
+  if ((Get-ItemCount $RawArgs) -eq 0) {
     $opts.SHOW_HELP = $true
     return $opts
   }
 
   $i = 0
-  while ($i -lt $RawArgs.Count) {
+  $rawArgCount = Get-ItemCount $RawArgs
+  while ($i -lt $rawArgCount) {
     $arg = $RawArgs[$i]
     switch ($arg) {
       '-d' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for -d' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for -d' }
         $opts.DE_READ = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '-t' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for -t' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for -t' }
         $opts.DE_TYPE = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '-b' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for -b' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for -b' }
         $opts.DXLOC = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '-o' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for -o' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for -o' }
         $opts.MAINDIR = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '--address' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for --address' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for --address' }
         $opts.ADDR_OPT = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '--port' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for --port' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for --port' }
         $opts.PORT_OPT = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '--protocol' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for --protocol' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for --protocol' }
         $opts.PROTO_OPT = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '--password' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for --password' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for --password' }
         $opts.ADMIN_PASS_OPT = $RawArgs[$i + 1]
         $i += 2
         continue
       }
       '--sys-password' {
-        if ($i + 1 -ge $RawArgs.Count) { throw 'Missing value for --sys-password' }
+        if ($i + 1 -ge $rawArgCount) { throw 'Missing value for --sys-password' }
         $opts.SYS_PASS_OPT = $RawArgs[$i + 1]
         $i += 2
         continue
@@ -139,13 +154,15 @@ function Invoke-Tool {
     [string]$Name,
     [string[]]$ToolArgs,
     [switch]$AllowFailure,
-    [string]$StdoutFile
+    [string]$StdoutFile,
+    [string]$ProgressLabel
   )
 
   $exePath = Join-Path $DXLOC ("$Name.exe")
 
   $exec = $null
   $argsToRun = @()
+  [int]$exitCode = 0
 
   if (Test-Path -LiteralPath $exePath) {
     $exec = $exePath
@@ -157,12 +174,81 @@ function Invoke-Tool {
 
   if ($StdoutFile) {
     & $exec @argsToRun 1> $StdoutFile
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+  }
+  elseif ($ProgressLabel) {
+    $tempStdOut = [System.IO.Path]::GetTempFileName()
+    $tempStdErr = [System.IO.Path]::GetTempFileName()
+    $startedAt = Get-Date
+    $outLinesRead = 0
+    $errLinesRead = 0
+
+    try {
+      $proc = Start-Process -FilePath $exec -ArgumentList $argsToRun -NoNewWindow -PassThru -RedirectStandardOutput $tempStdOut -RedirectStandardError $tempStdErr
+
+      while (-not $proc.HasExited) {
+        if (Test-Path -LiteralPath $tempStdOut) {
+          $rawOut = Get-Content -LiteralPath $tempStdOut -ErrorAction SilentlyContinue
+          [string[]]$allOut = if ($null -eq $rawOut) { @() } else { @($rawOut) }
+          if ((Get-ItemCount $allOut) -gt $outLinesRead) {
+            for ($i = $outLinesRead; $i -lt (Get-ItemCount $allOut); $i++) {
+              if ($allOut[$i] -ne '') { Write-ConsoleLine $allOut[$i] }
+            }
+            $outLinesRead = Get-ItemCount $allOut
+          }
+        }
+
+        if (Test-Path -LiteralPath $tempStdErr) {
+          $rawErr = Get-Content -LiteralPath $tempStdErr -ErrorAction SilentlyContinue
+          [string[]]$allErr = if ($null -eq $rawErr) { @() } else { @($rawErr) }
+          if ((Get-ItemCount $allErr) -gt $errLinesRead) {
+            for ($i = $errLinesRead; $i -lt (Get-ItemCount $allErr); $i++) {
+              if ($allErr[$i] -ne '') { Write-ConsoleLine $allErr[$i] }
+            }
+            $errLinesRead = Get-ItemCount $allErr
+          }
+        }
+
+        $elapsed = [int]((Get-Date) - $startedAt).TotalSeconds
+        Write-ConsoleLine "[$ProgressLabel] still running (${elapsed}s elapsed)..."
+        Start-Sleep -Seconds 5
+        $proc.Refresh()
+      }
+
+      if (Test-Path -LiteralPath $tempStdOut) {
+        $rawOut = Get-Content -LiteralPath $tempStdOut -ErrorAction SilentlyContinue
+        [string[]]$allOut = if ($null -eq $rawOut) { @() } else { @($rawOut) }
+        if ((Get-ItemCount $allOut) -gt $outLinesRead) {
+          for ($i = $outLinesRead; $i -lt (Get-ItemCount $allOut); $i++) {
+            if ($allOut[$i] -ne '') { Write-ConsoleLine $allOut[$i] }
+          }
+        }
+      }
+
+      if (Test-Path -LiteralPath $tempStdErr) {
+        $rawErr = Get-Content -LiteralPath $tempStdErr -ErrorAction SilentlyContinue
+        [string[]]$allErr = if ($null -eq $rawErr) { @() } else { @($rawErr) }
+        if ((Get-ItemCount $allErr) -gt $errLinesRead) {
+          for ($i = $errLinesRead; $i -lt (Get-ItemCount $allErr); $i++) {
+            if ($allErr[$i] -ne '') { Write-ConsoleLine $allErr[$i] }
+          }
+        }
+      }
+
+      $proc.WaitForExit()
+      $proc.Refresh()
+      $exitCode = [int]$proc.ExitCode
+    }
+    finally {
+      Remove-Item -LiteralPath $tempStdOut -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $tempStdErr -Force -ErrorAction SilentlyContinue
+    }
   }
   else {
     & $exec @argsToRun
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
   }
 
-  $exitCode = $LASTEXITCODE
   if ($exitCode -ne 0 -and -not $AllowFailure) {
     throw "$Name failed with exit code $exitCode"
   }
@@ -186,7 +272,7 @@ function Read-Row {
   }
 
   $parts = $line.Split(',')
-  if ($parts.Count -lt 7) {
+  if ((Get-ItemCount $parts) -lt 7) {
     return $null
   }
 
@@ -208,12 +294,57 @@ function Get-PathOrEmpty {
   return ''
 }
 
+function New-Utf8NoBomEncoding {
+  return New-Object System.Text.UTF8Encoding($false)
+}
+
+function Initialize-TextFileNoBom {
+  param([string]$Path)
+  [System.IO.File]::WriteAllText($Path, '', (New-Utf8NoBomEncoding))
+}
+
+function Append-LineNoBom {
+  param(
+    [string]$Path,
+    [string]$Line
+  )
+  [System.IO.File]::AppendAllText($Path, "$Line`n", (New-Utf8NoBomEncoding))
+}
+
+function Write-ConsoleLine {
+  param([string]$Message)
+  [Console]::Out.WriteLine($Message)
+}
+
+function ConvertTo-NativeArgumentString {
+  param([string[]]$Args)
+
+  $escaped = foreach ($arg in $Args) {
+    if ($null -eq $arg -or $arg -eq '') {
+      '""'
+      continue
+    }
+
+    if ($arg -notmatch '[\s"]') {
+      $arg
+      continue
+    }
+
+    # Escape for Windows command line parsing.
+    $value = $arg -replace '(\\*)"', '$1$1\\"'
+    $value = $value -replace '(\\+)$', '$1$1'
+    '"' + $value + '"'
+  }
+
+  return ($escaped -join ' ')
+}
+
 try {
-  $opts = Parse-Arguments -RawArgs $args
+  $opts = Parse-Arguments -RawArgs @($args)
 
   if ($opts.SHOW_HELP) {
     Show-Help
-    if ($args.Count -eq 0) { exit 1 }
+    if ((Get-ItemCount $args) -eq 0) { exit 1 }
     exit 0
   }
 
@@ -280,11 +411,12 @@ try {
     if (Test-Path -LiteralPath $dcc) {
       $code = Invoke-Tool -DXLOC $dxLocResolved -Name 'dx_config' -ToolArgs @('-convert', 'tocsv', '-configfile', $dcc, '-csvfile', $csv) -AllowFailure
       if ($code -ne 0) {
-        throw 'dx_config tocsv failed'
+        Write-Output 'Warning: existing dxtools.conf could not be converted to CSV; proceeding with a fresh temporary configuration.'
+        Initialize-TextFileNoBom -Path $csv
       }
     }
     else {
-      Set-Content -LiteralPath $csv -Value '' -Encoding UTF8
+      Initialize-TextFileNoBom -Path $csv
     }
 
     $adminRow = Read-Row -CsvPath $csv -Alias $base
@@ -317,7 +449,7 @@ try {
       if (-not $adminPass -and $opts.DE_READ -ne 'all') {
         throw "Missing admin password for $base."
       }
-      Add-Content -LiteralPath $csv -Value "$base,$useIp,$usePort,admin,$adminPass,$useEnc,$useProto"
+      Append-LineNoBom -Path $csv -Line "$base,$useIp,$usePort,admin,$adminPass,$useEnc,$useProto"
     }
 
     $hasSys = Select-String -Path $csv -Pattern "^$([regex]::Escape($sysAlias))," -Quiet
@@ -336,7 +468,7 @@ try {
       if (-not $sysPass -and $opts.DE_READ -ne 'all') {
         throw "Missing sysadmin password for $sysAlias."
       }
-      Add-Content -LiteralPath $csv -Value "$sysAlias,$useIp,$usePort,sysadmin,$sysPass,$useEnc,$useProto"
+      Append-LineNoBom -Path $csv -Line "$sysAlias,$useIp,$usePort,sysadmin,$sysPass,$useEnc,$useProto"
     }
 
     if (Test-Path -LiteralPath $dcc) {
@@ -353,13 +485,13 @@ try {
     $env:DXTOOLKIT_CONF = $dcc
 
     Write-Output 'Run a network latency test on all environments'
-    $code = Invoke-Tool -DXLOC $dxLocResolved -Name 'dx_ctl_network_tests' -ToolArgs ($de + @('-c', $dcc, '-type', 'latency', '-remoteaddr', 'all')) -AllowFailure
+    $code = Invoke-Tool -DXLOC $dxLocResolved -Name 'dx_ctl_network_tests' -ToolArgs ($de + @('-c', $dcc, '-type', 'latency', '-remoteaddr', 'all')) -AllowFailure -ProgressLabel 'network latency test'
     if ($code -ne 0) {
       Write-Output 'Warning: network latency test did not complete successfully; continuing.'
     }
 
     Write-Output 'Run a network throughput test on all environments'
-    $code = Invoke-Tool -DXLOC $dxLocResolved -Name 'dx_ctl_network_tests' -ToolArgs ($de + @('-c', $dcc, '-type', 'throughput', '-remoteaddr', 'all')) -AllowFailure
+    $code = Invoke-Tool -DXLOC $dxLocResolved -Name 'dx_ctl_network_tests' -ToolArgs ($de + @('-c', $dcc, '-type', 'throughput', '-remoteaddr', 'all')) -AllowFailure -ProgressLabel 'network throughput test'
     if ($code -ne 0) {
       Write-Output 'Warning: network throughput test did not complete successfully; continuing.'
     }
@@ -440,7 +572,14 @@ try {
   }
 }
 catch {
-  Write-Error $_.Exception.Message
+  $err = $_
+  [Console]::Error.WriteLine($err.Exception.Message)
+  if ($err.InvocationInfo -and $err.InvocationInfo.PositionMessage) {
+    [Console]::Error.WriteLine($err.InvocationInfo.PositionMessage)
+  }
+  if ($err.ScriptStackTrace) {
+    [Console]::Error.WriteLine($err.ScriptStackTrace)
+  }
   Show-Help
   exit 1
 }
