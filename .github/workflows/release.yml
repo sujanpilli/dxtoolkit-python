@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-assets:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: centos6
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/centos6
+            asset_suffix: redhat6-installer.tar.gz
+          - target: centos7
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/centos7
+            asset_suffix: redhat7-installer.tar.gz
+          - target: oel8
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/oel8
+            asset_suffix: redhat8-installer.tar.gz
+          - target: ubuntu
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/ubuntu
+            asset_suffix: ubuntu1804-installer.tar.gz
+          - target: ubuntu22
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/ubuntu22
+            asset_suffix: ubuntu2204-installer.tar.gz
+          - target: amazon2023
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/amazon2023
+            asset_suffix: amazon2023-installer.tar.gz
+          - target: Windows
+            runner: windows-latest
+            mode: pyinstaller-windows
+            asset_suffix: win64-installer.zip
+          - target: osx
+            runner: macos-13
+            mode: pyinstaller-macos
+            platform: osx
+            asset_suffix: osx.tar.gz
+          - target: osx-m1
+            runner: macos-14
+            mode: pyinstaller-macos
+            platform: osx-m1
+            asset_suffix: osx-m1.tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: startsWith(matrix.mode, 'pyinstaller')
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        if: startsWith(matrix.mode, 'pyinstaller')
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build legacy installer in Docker
+        if: matrix.mode == 'docker'
+        shell: bash
+        run: |
+          asset="dxtoolkit2-${GITHUB_REF_NAME}-${{ matrix.asset_suffix }}"
+          docker build -t "dxtoolkit-${{ matrix.target }}:release" "${{ matrix.docker_dir }}"
+          docker run --rm \
+            -e INPUT_ENCKEY="${{ secrets.INPUT_ENCKEY || 'release-placeholder-key' }}" \
+            -v "$PWD:/github/workspace" \
+            "dxtoolkit-${{ matrix.target }}:release"
+          test -f dxtoolkit.tar.gz
+          mv dxtoolkit.tar.gz "$asset"
+
+      - name: Build and package (macOS)
+        if: matrix.mode == 'pyinstaller-macos'
+        shell: bash
+        run: |
+          asset="dxtoolkit2-${GITHUB_REF_NAME}-${{ matrix.asset_suffix }}"
+          mkdir -p "dist/${{ matrix.platform }}" "build/pyinstaller/${{ matrix.platform }}"
+          for script in bin/*.py; do
+            python -m PyInstaller --onefile \
+              --distpath "dist/${{ matrix.platform }}" \
+              --workpath "build/pyinstaller/${{ matrix.platform }}" \
+              --specpath "build/pyinstaller/${{ matrix.platform }}" \
+              "$script"
+          done
+          tar -czf "$asset" -C "dist/${{ matrix.platform }}" .
+
+      - name: Build and package (Windows)
+        if: matrix.mode == 'pyinstaller-windows'
+        shell: pwsh
+        run: |
+          $asset = "dxtoolkit2-$env:GITHUB_REF_NAME-${{ matrix.asset_suffix }}"
+          New-Item -ItemType Directory -Force dist/windows, build/pyinstaller/windows | Out-Null
+          Get-ChildItem bin\*.py | ForEach-Object {
+            python -m PyInstaller --onefile `
+              --distpath dist/windows `
+              --workpath build/pyinstaller/windows `
+              --specpath build/pyinstaller/windows `
+              $_.FullName
+          }
+          Compress-Archive -Path dist/windows/* -DestinationPath $asset
+
+      - name: Upload packaged asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dxtoolkit2-${{ github.ref_name }}-${{ matrix.asset_suffix }}
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    needs: build-release-assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all packaged assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            release-assets/**/*.tar.gz
+            release-assets/**/*.zip

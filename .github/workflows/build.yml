@@ -1,0 +1,127 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-matrix:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: centos6
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/centos6
+          - target: centos7
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/centos7
+          - target: oel8
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/oel8
+          - target: ubuntu
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/ubuntu
+          - target: ubuntu22
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/ubuntu22
+          - target: amazon2023
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/amazon2023
+          - target: Windows
+            runner: windows-latest
+            mode: pyinstaller-windows
+          - target: osx
+            runner: macos-13
+            mode: pyinstaller-macos
+            platform: osx
+          - target: osx-m1
+            runner: macos-14
+            mode: pyinstaller-macos
+            platform: osx-m1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: startsWith(matrix.mode, 'pyinstaller')
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        if: startsWith(matrix.mode, 'pyinstaller')
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run Python tests
+        if: startsWith(matrix.mode, 'pyinstaller')
+        run: |
+          pytest -q test/test_python_cli.py test/test_json_outputs.py test/test_dx_get_scripts.py
+
+      - name: Build legacy installer in Docker
+        if: matrix.mode == 'docker'
+        shell: bash
+        run: |
+          docker build -t "dxtoolkit-${{ matrix.target }}:ci" "${{ matrix.docker_dir }}"
+          docker run --rm \
+            -e INPUT_ENCKEY="${{ secrets.INPUT_ENCKEY || 'ci-placeholder-key' }}" \
+            -v "$PWD:/github/workspace" \
+            "dxtoolkit-${{ matrix.target }}:ci"
+          test -f dxtoolkit.tar.gz
+          mv dxtoolkit.tar.gz "dxtoolkit2-ci-${{ matrix.target }}-installer.tar.gz"
+
+      - name: Build Python binaries (macOS)
+        if: matrix.mode == 'pyinstaller-macos'
+        shell: bash
+        run: |
+          mkdir -p "dist/${{ matrix.platform }}" "build/pyinstaller/${{ matrix.platform }}"
+          for script in bin/*.py; do
+            python -m PyInstaller --onefile \
+              --distpath "dist/${{ matrix.platform }}" \
+              --workpath "build/pyinstaller/${{ matrix.platform }}" \
+              --specpath "build/pyinstaller/${{ matrix.platform }}" \
+              "$script"
+          done
+          tar -czf "dxtoolkit2-ci-${{ matrix.target }}-installer.tar.gz" -C "dist/${{ matrix.platform }}" .
+
+      - name: Build Python binaries (Windows)
+        if: matrix.mode == 'pyinstaller-windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/windows, build/pyinstaller/windows | Out-Null
+          Get-ChildItem bin\*.py | ForEach-Object {
+            python -m PyInstaller --onefile `
+              --distpath dist/windows `
+              --workpath build/pyinstaller/windows `
+              --specpath build/pyinstaller/windows `
+              $_.FullName
+          }
+          Compress-Archive -Path dist/windows/* -DestinationPath "dxtoolkit2-ci-Windows-installer.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.target }}
+          path: |
+            dxtoolkit2-ci-*.tar.gz
+            dxtoolkit2-ci-*.zip
+          if-no-files-found: error
