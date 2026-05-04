@@ -13,10 +13,31 @@ jobs:
   build-release-assets:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || '' }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          - target: centos8
+            runner: ubuntu-latest
+            mode: pyinstaller-linux
+            container: oraclelinux:8
+            asset_suffix: redhat8-installer.tar.gz
+          - target: centos9
+            runner: ubuntu-latest
+            mode: pyinstaller-linux
+            container: oraclelinux:9
+            asset_suffix: redhat9-installer.tar.gz
+          - target: ubuntu22
+            runner: ubuntu-latest
+            mode: pyinstaller-linux
+            container: ubuntu:22.04
+            asset_suffix: ubuntu2204-installer.tar.gz
+          - target: ubuntu24
+            runner: ubuntu-latest
+            mode: pyinstaller-linux
+            container: ubuntu:24.04
+            asset_suffix: ubuntu2404-installer.tar.gz
           - target: Windows
             runner: windows-latest
             mode: pyinstaller-windows
@@ -36,16 +57,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Python (Linux container)
+        if: matrix.mode == 'pyinstaller-linux'
+        run: |
+          if command -v apt-get &>/dev/null; then
+            apt-get update -y && apt-get install -y python3 python3-pip binutils
+          elif command -v dnf &>/dev/null; then
+            dnf install -y python3 python3-pip binutils
+          else
+            yum install -y python3 python3-pip binutils
+          fi
+          python3 -m pip install --upgrade pip
+          pip3 install -r requirements.txt pyinstaller
+
       - name: Set up Python
+        if: matrix.mode != 'pyinstaller-linux'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
       - name: Install Python dependencies
+        if: matrix.mode != 'pyinstaller-linux'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Build and package (Linux)
+        if: matrix.mode == 'pyinstaller-linux'
+        shell: bash
+        run: |
+          asset="dxtoolkit2-${GITHUB_REF_NAME}-${{ matrix.asset_suffix }}"
+          mkdir -p dist/linux
+          for script in bin/*.py; do
+            python3 -m PyInstaller --onefile \
+              --distpath dist/linux \
+              --workpath build/pyinstaller/linux \
+              --specpath build/pyinstaller/linux \
+              "$script"
+          done
+          tar -czf "$asset" -C dist/linux .
 
       - name: Build and package (macOS)
         if: matrix.mode == 'pyinstaller-macos'
