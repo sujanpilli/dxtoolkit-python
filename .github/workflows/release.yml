@@ -42,11 +42,6 @@ jobs:
             runner: windows-latest
             mode: pyinstaller-windows
             asset_suffix: win64-installer.zip
-          - target: osx
-            runner: macos-13
-            mode: pyinstaller-macos
-            platform: osx
-            asset_suffix: osx.tar.gz
           - target: osx-m1
             runner: macos-14
             mode: pyinstaller-macos
