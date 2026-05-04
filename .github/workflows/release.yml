@@ -17,21 +17,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: centos6
+          - target: centos8
             runner: ubuntu-latest
             mode: docker
-            docker_dir: build/centos6
-            asset_suffix: redhat6-installer.tar.gz
-          - target: centos7
-            runner: ubuntu-latest
-            mode: docker
-            docker_dir: build/centos7
-            asset_suffix: redhat7-installer.tar.gz
-          - target: oel8
-            runner: ubuntu-latest
-            mode: docker
-            docker_dir: build/oel8
+            docker_dir: build/centos8
             asset_suffix: redhat8-installer.tar.gz
+          - target: centos9
+            runner: ubuntu-latest
+            mode: docker
+            docker_dir: build/centos9
+            asset_suffix: redhat9-installer.tar.gz
           - target: ubuntu
             runner: ubuntu-latest
             mode: docker

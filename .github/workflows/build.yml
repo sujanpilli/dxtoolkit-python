@@ -18,22 +18,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: centos6
+          - target: centos8
             runner: ubuntu-latest
             mode: docker
-            docker_dir: build/centos6
-          - target: centos7
+            docker_dir: build/centos8
+          - target: centos9
             runner: ubuntu-latest
             mode: docker
-            docker_dir: build/centos7
-          - target: oel8
-            runner: ubuntu-latest
-            mode: docker
-            docker_dir: build/oel8
-          - target: ubuntu
-            runner: ubuntu-latest
-            mode: docker
-            docker_dir: build/ubuntu
+            docker_dir: build/centos9
           - target: ubuntu22
             runner: ubuntu-latest
             mode: docker
