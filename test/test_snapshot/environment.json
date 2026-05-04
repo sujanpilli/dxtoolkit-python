@@ -1,0 +1,96 @@
+{
+   "overflow" : false,
+   "status" : "OK",
+   "action" : null,
+   "type" : "ListResult",
+   "job" : null,
+   "total" : 6,
+   "result" : [
+      {
+         "type" : "WindowsHostEnvironment",
+         "name" : "marcinmssqlsrc.dlpxdc.co",
+         "description" : null,
+         "namespace" : null,
+         "reference" : "WINDOWS_HOST_ENVIRONMENT-6",
+         "logCollectionEnabled" : false,
+         "proxy" : "WINDOWS_HOST-2",
+         "primaryUser" : "HOST_USER-6",
+         "enabled" : true,
+         "host" : "WINDOWS_HOST-6"
+      },
+      {
+         "host" : "WINDOWS_HOST-2",
+         "enabled" : true,
+         "proxy" : null,
+         "primaryUser" : "HOST_USER-1",
+         "logCollectionEnabled" : false,
+         "reference" : "WINDOWS_HOST_ENVIRONMENT-1",
+         "description" : null,
+         "namespace" : null,
+         "name" : "marcinmssqltgt.dlpxdc.co",
+         "type" : "WindowsHostEnvironment"
+      },
+      {
+         "reference" : "UNIX_HOST_ENVIRONMENT-5",
+         "logCollectionEnabled" : false,
+         "primaryUser" : "HOST_USER-5",
+         "host" : "UNIX_HOST-5",
+         "enabled" : true,
+         "type" : "UnixHostEnvironment",
+         "name" : "marcinsybasetgt.dlpxdc.co",
+         "namespace" : null,
+         "aseHostEnvironmentParameters" : {
+            "credentials" : {
+               "password" : "********",
+               "type" : "PasswordCredential"
+            },
+            "type" : "ASEHostEnvironmentParameters",
+            "dbUser" : "sa"
+         },
+         "description" : null
+      },
+      {
+         "namespace" : null,
+         "description" : null,
+         "aseHostEnvironmentParameters" : null,
+         "type" : "UnixHostEnvironment",
+         "name" : "marcinoratgt.dlpxdc.co",
+         "primaryUser" : "HOST_USER-4",
+         "host" : "UNIX_HOST-4",
+         "enabled" : true,
+         "reference" : "UNIX_HOST_ENVIRONMENT-4",
+         "logCollectionEnabled" : false
+      },
+      {
+         "primaryUser" : "HOST_USER-3",
+         "host" : "UNIX_HOST-3",
+         "enabled" : true,
+         "reference" : "UNIX_HOST_ENVIRONMENT-3",
+         "logCollectionEnabled" : false,
+         "namespace" : null,
+         "aseHostEnvironmentParameters" : {
+            "type" : "ASEHostEnvironmentParameters",
+            "credentials" : {
+               "password" : "********",
+               "type" : "PasswordCredential"
+            },
+            "dbUser" : "sa"
+         },
+         "description" : null,
+         "type" : "UnixHostEnvironment",
+         "name" : "marcinsybasesrc.dlpxdc.co"
+      },
+      {
+         "reference" : "UNIX_HOST_ENVIRONMENT-2",
+         "logCollectionEnabled" : false,
+         "primaryUser" : "HOST_USER-2",
+         "host" : "UNIX_HOST-1",
+         "enabled" : true,
+         "type" : "UnixHostEnvironment",
+         "name" : "marcinorasrc.dlpxdc.co",
+         "namespace" : null,
+         "description" : null,
+         "aseHostEnvironmentParameters" : null
+      }
+   ]
+}

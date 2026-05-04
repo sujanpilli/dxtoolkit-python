@@ -1,0 +1,911 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Copyright (c) 2014,2019 by Delphix. All rights reserved.
+#
+# Program Name : dx_get_db_env.pl
+# Description  : Get database and host information
+# Author       : Edward de los Santos
+# Created: 30 Jan 2014 (v1.0.0)
+#
+# Modified: 03 Mar 2015 (v1.0.2) Marcin Przepiorowski
+#
+# Modified: 14 Mar 2015 (v2.0.0) Marcin Przepiorowski
+
+
+use strict;
+use warnings;
+use JSON;
+use Getopt::Long qw(:config no_ignore_case no_auto_abbrev); #avoids conflicts with ex host and help
+use File::Basename;
+use Pod::Usage;
+use FindBin;
+use Data::Dumper;
+use File::Spec;
+
+
+
+my $abspath = $FindBin::Bin;
+
+use lib '../lib';
+use Databases;
+use Engine;
+use Timeflow_obj;
+use Capacity_obj;
+use Formater;
+use Group_obj;
+use Toolkit_helpers;
+use Snapshot_obj;
+use Hook_obj;
+use MaskingJob_obj;
+use OracleVDB_obj;
+use Toolkit_helpers qw (logger);
+
+my $version = $Toolkit_helpers::version;
+
+my $parentlast = 'p';
+my $hostenv = 'h';
+my $configtype = 's';
+my $output_unit = 'G';
+
+GetOptions(
+  'help|?' => \(my $help),
+  'd|engine=s' => \(my $dx_host),
+  'name=s' => \(my $dbname),
+  'format=s' => \(my $format),
+  'type=s' => \(my $type),
+  'rdbms=s' => \(my $rdbms),
+  'group=s' => \(my $group),
+  'host=s' => \(my $host),
+  'dsource=s' => \(my $dsource),
+  'primary' => \(my $primary),
+  'masking' => \(my $masking),
+  'envname=s' => \(my $envname),
+  'instance=n' => \(my $instance),
+  'instancename=s' => \(my $instancename),
+  'reponame=s' => \(my $repositoryname),
+  'debug:i' => \(my $debug),
+  'parentlast=s' =>  \($parentlast),
+  'hostenv=s' =>  \($hostenv),
+  'config' => \(my $config),
+  'configtype=s' => \($configtype),
+  'backup=s' => \(my $backup),
+  'olderthan=s' => \(my $creationtime),
+  'save=s' => \(my $save),
+  'timeflowparent' => \(my $timeflowparent),
+  'output_unit:s' => \($output_unit),
+  'dever=s' => \(my $dever),
+  'offset' => \(my $offset),
+  'all' => (\my $all),
+  'version' => \(my $print_version),
+  'nohead' => \(my $nohead),
+  'snappervdb' => \(my $snappervdb),
+  'configfile|c=s' => \(my $config_file),
+  'cluster' => \(my $cluster)
+) or pod2usage(-verbose => 1,  -input=>\*DATA);
+
+pod2usage(-verbose => 2,  -input=>\*DATA) && exit if $help;
+die  "$version\n" if $print_version;
+
+my $engine_obj = new Engine ($dever, $debug);
+
+$engine_obj->load_config($config_file);
+
+if (defined($all) && defined($dx_host)) {
+  print "Option all (-all) and engine (-d|engine) are mutually exclusive \n";
+  pod2usage(-verbose => 1,  -input=>\*DATA);
+  exit (1);
+}
+
+if (defined($instance) && defined($instancename)) {
+  print "Filter -instance and -instancename are mutually exclusive \n";
+  pod2usage(-verbose => 1,  -input=>\*DATA);
+  exit (1);
+}
+
+if ( !  ( ( uc $output_unit eq 'G') || ( uc $output_unit eq 'M') || ( uc $output_unit eq 'K') ) ) {
+  print "Option -output_unit can be only G for GB, M for MB and K for KB \n";
+  pod2usage(-verbose => 1,  -input=>\*DATA);
+  exit (1);
+}
+
+Toolkit_helpers::check_filer_options (undef, $type, $group, $host, $dbname, $envname);
+
+# this array will have all engines to go through (if -d is specified it will be only one engine)
+my $engine_list = Toolkit_helpers::get_engine_list($all, $dx_host, $engine_obj);
+
+my $output = new Formater();
+my $dsource_output;
+
+my $parentlast_head;
+my $hostenv_head;
+
+if (lc $parentlast eq 'p') {
+  $parentlast_head = 'Parent snapshot';
+} elsif (lc $parentlast eq 'l') {
+  $parentlast_head = 'Last snapshot';
+} else {
+  print "Option parentlast has a wrong argument\n";
+  pod2usage(-verbose => 1,  -input=>\*DATA);
+  exit (1);
+}
+
+if (lc $hostenv eq 'h') {
+  $hostenv_head = 'Hostname';
+} elsif (lc $hostenv eq 'e') {
+  $hostenv_head = 'Env. name';
+} else {
+  print "Option hostenv has a wrong argument\n";
+  pod2usage(-verbose => 1,  -input=>\*DATA);
+  exit (1);
+}
+
+if (defined($rdbms)) {
+  my %allowed_rdbms = (
+    "oracle" => 1,
+    "sybase" => 1,
+    "mssql"  => 1,
+    "db2"    => 1,
+    "vFiles" => 1
+  );
+
+  if (!defined($allowed_rdbms{$rdbms})) {
+   print "Option rdbms has a wrong argument - $rdbms\n";
+   pod2usage(-verbose => 1,  -input=>\*DATA);
+   exit (1);
+  }
+
+}
+
+if (defined($backup)) {
+  if (! -d $backup) {
+    print "Path $backup is not a directory \n";
+    exit (1);
+  }
+  if (! -w $backup) {
+    print "Path $backup is not writtable \n";
+    exit (1);
+  }
+
+  $hostenv = 'e';
+  $output->addHeader(
+      {'Paramters', 200}
+  );
+
+  $dsource_output = new Formater();
+  $dsource_output->addHeader(
+      {'Paramters', 200}
+  );
+
+  $primary = 1;
+
+} elsif (defined($config)) {
+  if ($configtype eq 's') {
+    $hostenv = 'e';
+    $output->addHeader(
+      {'Appliance', 20},
+      {'Env. name', 20},
+      {'Database',   30},
+      {'Group',      15},
+      {'Type',        8},
+      {'SourceDB',   30},
+      {'Repository', 35},
+      {'DB type',    10},
+      {'Version',    10},
+      {'Other',      100}
+    );
+  } elsif ($configtype eq 'd') {
+    $output->addHeader(
+      {'Appliance', 20},
+      {$hostenv_head, 20},
+      {'Database',   30},
+      {'Group',      15},
+      {'Type',        8},
+      {'SourceDB',   30},
+      {'Repository', 35},
+      {'DB type',    10},
+      {'Version',    15},
+      {'Server DB name',  30}
+    );
+  } else {
+    print "Configtype has to have value 'd' or 's'\n";
+    exit 1;
+  }
+} else {
+  if (defined($masking)) {
+    $output->addHeader(
+      {'Appliance',   20},
+      {$hostenv_head, 20},
+      {'Database',    30},
+      {'Group',       15},
+      {'Type',         8},
+      {'SourceDB',    30},
+      {'Masked',      10},
+      {'Masking job', 15}
+    );
+  } else {
+    my @headerlist;
+    push(@headerlist, {'Appliance'      ,20} );
+    push(@headerlist, {$hostenv_head    ,20} );
+    push(@headerlist, {'Database'       ,30} );
+    push(@headerlist, {'Group'          ,15} );
+    push(@headerlist, {'Type'            ,8} );
+    push(@headerlist, {'SourceDB'       ,30} );
+    push(@headerlist, {$parentlast_head ,35} );
+    push(@headerlist, {Toolkit_helpers::get_unit('Used',$output_unit)       ,10});
+    push(@headerlist, {'Status'         ,10});
+    push(@headerlist, {'Enabled'        ,10});
+    push(@headerlist, {'Unique Name'    ,30});
+    push(@headerlist, {'Parent time'    ,35});
+    push(@headerlist, {'VDB creation time',35});
+    push(@headerlist, {'VDB refresh time' ,35});
+    if (defined($cluster) && (lc $hostenv eq 'e')) {
+      push(@headerlist, {'Host list' ,35});
+    }
+    $output->addHeader(@headerlist);
+
+  }
+}
+
+
+
+my %save_state;
+
+my $ret = 0;
+
+for my $engine ( sort (@{$engine_list}) ) {
+  # main loop for all work
+  if ($engine_obj->dlpx_connect($engine)) {
+    print "Can't connect to Dephix Engine $engine\n\n";
+    $ret = $ret + 1;
+    next;
+  };
+
+  # load objects for current engine
+  my $databases = new Databases( $engine_obj, $debug);
+  my $capacity;
+  my $timeflows;
+  my $groups = new Group_obj($engine_obj, $debug);
+  my $maskingjob;
+
+  my $templates;
+  my $snapshots;
+  if ( defined($backup) || defined($config) ) {
+      $templates = new Template_obj($engine_obj, $debug);
+  } else {
+    if (lc $parentlast eq 'p') {
+      $snapshots = new Snapshot_obj($engine_obj, undef, undef, $debug, undef, undef, 1);
+    }
+    $capacity = new Capacity_obj($engine_obj, $debug);
+    $capacity->LoadDatabases();
+    $timeflows = new Timeflow_obj($engine_obj, undef, $debug);
+  }
+
+  # filter implementation
+
+
+  my $zulutime;
+  if (defined($creationtime)) {
+    $zulutime = Toolkit_helpers::convert_to_utc($creationtime, $engine_obj->getTimezone(), undef, 1);
+  }
+
+  my $db_list = Toolkit_helpers::get_dblist_from_filter($type, $group, $host, $dbname, $databases, $groups, $envname, $dsource, $primary, $instance, $instancename, $zulutime, $repositoryname, $debug);
+  if (! defined($db_list)) {
+    print "There is no DB selected to process on $engine . Please check filter definitions. \n";
+    $ret = $ret + 1;
+    next;
+  }
+
+  # filter based on rdbms type works only in dx_get_db_env
+
+  my @db_display_list;
+
+  if (defined($rdbms)) {
+    for my $dbitem ( @{$db_list} ) {
+      my $dbobj = $databases->getDB($dbitem);
+      if ($dbobj->getDBType() ne $rdbms) {
+        next;
+      } else {
+        push(@db_display_list, $dbitem);
+      }
+    }
+
+    if (scalar(@db_display_list)<1) {
+      print "There is no DB selected to process on $engine . Please check filter definitions. \n";
+      $ret = $ret + 1;
+      next;
+    }
+
+  } else {
+    @db_display_list = @{$db_list};
+  }
+
+
+
+
+  if (defined($backup)) {
+    # backup of VDB should process list in creation order
+    # assumptions - container no sequence is growing
+    # so sorting on that should solve dependency problem
+    @db_display_list = sort { Toolkit_helpers::sort_by_number($a, $b) } @db_display_list;
+  }
+
+  my $snaploaded = 0;
+
+  my $refreshdate;
+
+  # for filtered databases on current engine - display status
+  for my $dbitem ( @db_display_list ) {
+    my $dbobj = $databases->getDB($dbitem);
+
+    my $parentsnap;
+    my $snaptime;
+    my $hostenv_line;
+    my $timezone;
+    my $parentname;
+    my $parentgroup;
+    my $uniquename;
+    my $parenttime;
+
+
+    if ($dbobj->getDBType() eq 'oracle') {
+      $uniquename = $dbobj->getUniqueName();
+    } else {
+      $uniquename = 'N/A';
+    }
+
+    if ( $dbobj->getParentContainer() ne '' ) {
+      my $parentdb = $databases->getDB($dbobj->getParentContainer());
+      if (defined($parentdb)) {
+        $parentname = $parentdb->getName();
+        my $parentgroup_ref = $databases->getDB($dbobj->getParentContainer())->getGroup();
+        $parentgroup = $groups->getName($parentgroup_ref);
+      } else {
+        $parentname = 'N/A';
+      }
+    } else {
+      $parentname = '';
+    }
+
+    if (lc $hostenv eq 'h') {
+      $hostenv_line = $dbobj->getHost($cluster);
+    } else {
+      $hostenv_line = $dbobj->getEnvironmentName();
+    }
+
+    my $groupname = $groups->getName($dbobj->getGroup());
+
+    if (defined($config)) {
+      if ($configtype eq 's') {
+        my $other = $dbobj->getConfig($templates, undef, $groups);
+        $output->addLine(
+          $engine,
+          $hostenv_line,
+          $dbobj->getName(),
+          $groupname,
+          $dbobj->getType(),
+          $parentname,
+          $dbobj->getHome(),
+          $dbobj->{_dbtype},
+          $dbobj->getVersion(),
+          $other
+        );
+      } elsif ($configtype eq 'd') {
+        my $other = $dbobj->getConfig($templates, undef, $groups);
+        $output->addLine(
+          $engine,
+          $hostenv_line,
+          $dbobj->getName(),
+          $groupname,
+          $dbobj->getType(),
+          $parentname,
+          $dbobj->getHome(),
+          $dbobj->{_dbtype},
+          $dbobj->getVersion(),
+          $dbobj->getDatabaseName()
+        );
+      }
+
+    } elsif (defined($backup)) {
+
+      if (($dbobj->getType() eq 'VDB') && $dbobj->getMasked() && ($dbobj->getMaskingJob() ne '')) {
+        # if VDB is masked and it's using a masking job
+        # dSource has to have a masking job assigned before VDB creation
+        $dbobj->backupmaskingassigment($engine, $output, $parentname, $parentgroup);
+      }
+
+      #backup($engine, $dbobj, $output, $dsource_output, $groups, $parentname, $hostenv_line, $parentgroup, $templates);
+      $dbobj->getBackup($engine, $output, $dsource_output, $backup, $groupname, $parentname, $parentgroup, $templates, $groups);
+
+    } else {
+
+      my $timeflow_for_parent;
+
+      if ($dbobj->getType() eq 'VDB') {
+        my $hier = $timeflows->generateHierarchy(undef, undef, $databases);
+
+        $refreshdate = $timeflows->findrefreshtime($dbobj->getCurrentTimeflow(), $hier, $dbobj->getReference());
+
+
+
+
+        if (defined($timeflowparent)) {
+          # old behaviour - it will show a rollback as a parent
+          # add flag -timeflowparent to activate
+          $timeflow_for_parent = $dbobj->getCurrentTimeflow();
+        } else {
+          # fixed behaviour - it will always display a snapshot of parent used for refresh
+          $timeflow_for_parent = $timeflows->findrefresh($dbobj->getCurrentTimeflow(), $hier, $dbobj->getReference());
+        }
+      } else {
+        $refreshdate = 'N/A';
+      }
+
+
+      $parentsnap = $timeflows->getParentSnapshot($timeflow_for_parent);
+      if (lc $parentlast eq 'p') {
+        if (($parentsnap ne '') && ($dbobj->getType() eq 'VDB')) {
+          if (defined($snapshots)) {
+            if (defined($snappervdb)) {
+              if ($snapshots->getSnapshotPerRef($parentsnap) == 1) {
+                print "Problem with loading snapshot\n";
+                $ret = $ret + 1;
+                next
+              }
+            } else {
+              if (! $snaploaded) {
+                # load all snapshots from all databases
+                my @snapdblist = $databases->getDBList();
+                $snapshots->getSnapshotList(\@snapdblist);
+                $snaploaded = 1;
+              }
+            }
+          } else {
+            print "Snapshot object not created\n";
+            $ret = $ret + 1;
+          }
+          ($snaptime,$timezone) = $snapshots->getSnapshotTimewithzone($parentsnap, $offset);
+          $parenttime = $timeflows->getParentPointTimestampWithTimezone($timeflow_for_parent, $timezone, $offset);
+          if (defined($parenttime) && ($parenttime eq 'N/A')) {
+            my $loc = $timeflows->getParentPointLocation($timeflow_for_parent);
+            my $lastsnaploc = $snapshots->getlatestChangePoint($parentsnap);
+            if ( $loc != $lastsnaploc) {
+              $parenttime = $loc;
+            } else {
+              $parenttime = $snaptime;
+            }
+          } elsif (!defined($parenttime)) {
+            $parenttime = 'N/A';
+          }
+
+        } else {
+          $snaptime = 'N/A';
+          $parenttime = 'N/A';
+        }
+      }
+
+      if (lc $parentlast eq 'l') {
+        my $dbref = $dbobj->getReference();
+        my $dsource_snaps = new Snapshot_obj($engine_obj, $dbref, undef, $debug);
+        $dsource_snaps->getSnapshotList($dbref);
+        ($snaptime,$timezone) = $dsource_snaps->getLatestSnapshotTime($offset);
+        $parenttime = 'N/A';
+      }
+
+      my $crtime;
+
+      if (defined($dbobj->getCreationTime())) {
+        my $tz = $engine_obj->getTimezone();
+        $crtime = Toolkit_helpers::convert_from_utc($dbobj->getCreationTime(), $tz);
+        if (! defined($crtime)) {
+          logger($debug, "Creation time - Timezone coversion issue $tz",2);
+          $crtime = "N/A";
+        }
+      } else {
+        logger($debug, "Creation time - not defined",2);
+        $crtime = 'N/A';
+      }
+
+
+      if (defined($masking)) {
+        my $masked;
+        my $maskedjob_name;
+        if ($dbobj->getMasked()) {
+          $maskedjob_name = $dbobj->getMaskingJob();
+          $masked = 'YES'
+        } else {
+          $masked = 'NO';
+          $maskedjob_name = '';
+        }
+        $output->addLine(
+          $engine,
+          $hostenv_line,
+          $dbobj->getName(),
+          $groupname,
+          $dbobj->getType(),
+          $parentname,
+          $masked,
+          $maskedjob_name
+        );
+      } else {
+
+        my @printarray;
+        push(@printarray,$engine);
+        push(@printarray,$hostenv_line);
+        push(@printarray,$dbobj->getName());
+        push(@printarray,$groupname);
+        push(@printarray,$dbobj->getType());
+        push(@printarray,$parentname);
+        push(@printarray,$snaptime);
+        push(@printarray,Toolkit_helpers::print_size($capacity->getDatabaseUsage($dbobj->getReference()), 'G', $output_unit));
+        push(@printarray,$dbobj->getRuntimeStatus());
+        push(@printarray,$dbobj->getEnabled());
+        push(@printarray,$uniquename);
+        push(@printarray,$parenttime);
+        push(@printarray,$crtime);
+        push(@printarray,$refreshdate);
+        if (defined($cluster) && (lc $hostenv eq 'e')) {
+          push(@printarray, $dbobj->getHost($cluster));
+        }
+        $output->addLine(@printarray);
+      }
+
+    }
+
+    $save_state{$dbobj->getName()}{$dbobj->getHost()} = $dbobj->getEnabled();
+
+  }
+
+  if ( defined($save) ) {
+    # save file format - userspecified.enginename
+    my $save_file = $save . "." . $engine;
+    open (my $save_stream, ">", $save_file) or die ("Can't open file $save_file for writting : $!" );
+    print $save_stream to_json(\%save_state, {pretty => 1});
+    close $save_stream;
+  }
+
+}
+
+if (defined($backup)) {
+
+  my $FD;
+  my $filename = File::Spec->catfile($backup,'backup_metadata_dsource.txt');
+
+  if ( open($FD,'>', $filename) ) {
+    $dsource_output->savecsv(1,$FD);
+    print "Backup exported into $filename \n";
+  } else {
+    print "Can't create a backup file $filename \n";
+    $ret = $ret + 1;
+  }
+  close ($FD);
+
+  $filename = File::Spec->catfile($backup,'backup_metadata_vdb.txt');
+
+  if ( open($FD,'>', $filename) ) {
+    $output->savecsv(1,$FD);
+    print "Backup exported into $filename \n";
+  } else {
+    print "Can't create a backup file $filename \n";
+    $ret = $ret + 1;
+  }
+  close ($FD);
+
+} else {
+    Toolkit_helpers::print_output($output, $format, $nohead);
+}
+
+
+exit $ret;
+
+
+__DATA__
+
+=head1 SYNOPSIS
+
+ dx_get_db_env    [-engine|d <delphix identifier> | -all ]
+                  [-group group_name | -name db_name | -host host_name | -type dsource|vdb | -instancename instname | -olderthan date]
+                  [-rdbms oracle|sybase|db2|mssql|vFiles | -reponame repository_name]
+                  [-save]
+                  [-masking]
+                  [-parentlast l|p]
+                  [-config]
+                  [-configtype s|d]
+                  [-backup path]
+                  [-hostenv h|e]
+                  [-offset]
+                  [-cluster]
+                  [-output_unit K|M|G|T]
+                  [-format csv|json ]
+                  [-help|? ] [ -debug ]
+
+=head1 DESCRIPTION
+
+Get the information about databases.
+
+=head1 ARGUMENTS
+
+Delphix Engine selection - if not specified a default host(s) from dxtools.conf will be used.
+
+=over 10
+
+=item B<-engine|d>
+Specify Delphix Engine name from dxtools.conf file
+
+=item B<-all>
+Display databases on all Delphix appliance
+
+=item B<-configfile file>
+Location of the configuration file.
+A config file search order is as follow:
+- configfile parameter
+- DXTOOLKIT_CONF variable
+- dxtools.conf from dxtoolkit location
+
+=back
+
+=head2 Filters
+
+Filter databases using one of the following filters
+
+=over 4
+
+=item B<-group>
+Group Name
+
+=item B<-name>
+Database Name
+
+=item B<-host>
+Host Name
+
+=item B<-type>
+Type (dsource|vdb)
+
+=item B<-envname>
+Environment name
+
+=item B<-dsource dsourcename>
+Dsource name
+
+=item B<-instancename instname>
+Instance name (Oracle)
+
+=item B<-rdbms oracle|sybase|db2|mssql|vFiles>
+Filter by RDBMS type - this filter is implemented only in dx_get_db_env
+
+=item B<-reponame repository_name>
+Filter using repository_name ( Oracle Home, MS SQL instance, etc)
+
+=back
+
+=head3 Instance option
+
+Specify a instance number (only with combination with host)
+
+=over 4
+
+=item B<-instance inst_no>
+Instance number
+
+=back
+
+=head1 OPTIONS
+
+=over 3
+
+=item B<-config>
+Display a config of databases (db type, version, instance / Oracle home) plus others
+
+=item B<-configtype>
+Display a config of databases including a database name on server
+
+=item B<-masking>
+Display a masking status of databases plus a masking job
+
+=item B<-backup path>
+Gnerate a dxToolkit commands to recreate databases ( Oracle / MS SQL support )
+into path
+
+=item B<-parentlast l|p>
+Change a snapshot column to display :
+l - a last snapshot time (default)
+p - parent snapshot for VDB
+
+=item B<-hostenv h|e>
+Change a hostname/env column to display :
+h - target host name (default)
+e - target environment name
+
+=item B<-snappervdb>
+By default snapshots for all objects are read to avoid an API call per VDB.
+This behaviour is not efficient for engine with many snapshots and this parameter
+is switching logic to read one snapshot per VDB. It should be used for Engines
+with many (1000's) snapshots
+
+
+=item B<-timeflowparent>
+By default Parent Snapshot / Parent time will display a parent object snapshot used for provisioning
+or last refresh operation. With this flag set, dxtoolkit will use an old behaviour and
+display a timeflow parent snapshot which may be a parent database snapshot for provisioning / refresh
+or a current VDB snapshot if rollback operation was done.
+
+=item B<-offset>
+Print database timestamp with offset rather then timezone name
+
+=item B<-output_unit K|M|G|T>
+Display usage using different unit. By default GB are used
+Use K for KiloBytes, G for GigaBytes and M for MegaBytes, T for TeraBytes
+
+=item B<-cluster>
+If hostenv is set to h (default)
+Print ; segrageted list of cluster nodes from the environment into hostname column
+If hostenc is set to e
+Print ; segrageted list of cluster nodes from the environment into a new column called Host list
+
+
+=item B<-format>
+Display output in csv or json format
+If not specified pretty formatting is used.
+
+=item B<-help>
+Print this screen
+
+=item B<-debug>
+Turn on debugging
+
+=item B<-save <filename> >
+Save enabled column into JSON file <filename.engine_name> to restore it later using dx_ctl_db
+
+=item B<-nohead>
+Turn off header output
+
+=back
+
+=head1 COLUMNS
+
+Columns description
+
+=over 1
+
+=item B<Appliance> - Delphix Engine name from dxtools.conf file
+
+=item B<Hostname> - Delphix environment hostname or IP address
+
+=item B<Env. name> - Delphix environment name
+
+=item B<Database> - Database name ( dSource or VDB )
+
+=item B<Group> - Group name
+
+=item B<Type> - Database type: dSource | VDB | CDB (Oracle Container) | vCDB ( Oracle Virtual Container )
+
+=item B<SourceDB> - Parent name for VDB
+
+=item B<Parent snapshot> - Parent snapshot time for VDB
+
+=item B<Last snapshot> - Last snapshot time for VDB or dSource
+
+=item B<Used(GB)> - Space used by database
+
+=item B<Status> - Runtime status of database
+
+=item B<Enabled> - Status of database
+
+=item B<Unique Name> - Oracle database unique name
+
+=item B<Parent time> - Parent time used for VDB provision (it can be snapshot time or exact time selected )
+
+=item B<VDB creation time> - VDB creation time
+
+=item B<VDB refresh time> - Last refresh time for VDB
+
+=item B<Host list> - List of hosts in the environment 
+
+=back
+
+=head1 EXAMPLES
+
+List all databases known to Delphix Engine
+
+ dx_get_db_env -d Landshark51
+
+ Appliance  Hostname             Database                       Group           Type     SourceDB                       Parent snapshot                     Used(GB)   Status     Enabled      Unique Name
+ ---------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ----------   -------------
+ Landshark5 172.16.180.132       autotest                       Analytics       VDB      AdventureWorksLT2008R2         2016-12-07 10:32:26 PST             0.01       UNKNOWN    enabled      N/A
+ Landshark5 172.16.180.133       AdventureWorksLT2008R2         Sources         dSource                                 N/A                                 0.00       UNKNOWN    enabled      N/A
+ Landshark5 linuxsource          Oracle dsource                 Sources         dSource                                 N/A                                 0.64       RUNNING    enabled      orcl
+ Landshark5 linuxsource          Sybase dsource                 Sources         dSource                                 N/A                                 0.00       RUNNING    enabled      N/A
+
+List databases from group "Analytics" and display last snapshot time
+
+ dx_get_db_env -d Landshark51 -group Analytics -parentlast l
+
+ Appliance  Hostname             Database                       Group           Type     SourceDB                       Last snapshot                       Used(GB)   Status     Enabled      Unique Name
+ ---------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ----------   -------------
+ Landshark5 172.16.180.132       autotest                       Analytics       VDB      AdventureWorksLT2008R2         2016-12-07 18:49:04 GMT             0.01       RUNNING    enabled      N/A
+
+List databases created from dSource "Sybase dsource"
+
+ dx_get_db_env -d Landshark51 -dsource "Sybase dsource"
+
+ Appliance  Hostname             Database                       Group           Type     SourceDB                       Parent snapshot                     Used(GB)   Status     Enabled      Unique Name
+ ---------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ----------   -------------
+ Landshark5 LINUXTARGET          testsybase                     Analytics       VDB      Sybase dsource                 2016-09-26 10:16:00 EDT             0.00       RUNNING    enabled      N/A
+ Landshark5 LINUXTARGET          testvdb                        Tests           VDB      Sybase dsource                 2016-09-26 10:16:00 EDT             0.00       RUNNING    enabled      N/A
+
+List all databases known to Delphix Engine showing environment name instead of hostname
+
+ dx_get_db_env -d Landshark51 -hostenv e
+
+ Appliance  Env. name            Database                       Group           Type     SourceDB                       Parent snapshot                     Used(GB)   Status     Enabled      Unique Name
+ ---------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ----------   -------------
+ Landshark5 LINUXTARGET          autotest                       Analytics       VDB      Oracle dsource                 2016-12-08 10:44:38 EST             0.01       RUNNING    enabled      N/A
+ Landshark5 LINUXTARGET          testsybase                     Analytics       VDB      Sybase dsource                 2016-09-26 10:16:00 EDT             0.00       RUNNING    enabled      N/A
+ Landshark5 WINDOWSSOURCE        AdventureWorksLT2008R2         Sources         dSource                                 N/A                                 0.00       UNKNOWN    enabled      N/A
+ Landshark5 LINUXSOURCE          Oracle dsource                 Sources         dSource                                 N/A                                 0.67       RUNNING    enabled      orcl
+ Landshark5 LINUXSOURCE          Sybase dsource                 Sources         dSource                                 N/A                                 0.00       RUNNING    enabled      N/A
+ Landshark5 LINUXTARGET          testvdb                        Tests           VDB      Sybase dsource                 2016-09-26 10:16:00 EDT             0.00       RUNNING    enabled      N/A
+
+List databases from group "Analytics" with configuration
+
+ dx_get_db_env -d Landshark51 -group "Analytics" -config
+
+ Appliance  Env. name            Database                       Group           Type     SourceDB                       Repository                          DB type    Version    Other
+ ---------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ----------------------------------------------------------------------------------------------------
+ Landshark5 LINUXTARGET          autotest                       Analytics       VDB      Oracle dsource                 /u01/app/oracle/11.2.0.4/db1        oracle     11.2.0.4.0 -redoGroup 3,-redoSize 100,-archivelog=yes,-mntpoint "/mnt/provision",-instname autotest,-uniqname a
+ Landshark5 LINUXTARGET          testsybase                     Analytics       VDB      Sybase dsource                 LINUXTARGET                         sybase     15.7 SP101
+
+Generate backup of databases metadata from group "Analytics" into directory /tmp
+
+ dx_get_db_env -d Landshark51 -group "Analytics" -backup /tmp
+ Exporting database autotest hooks into  /tmp/autotest.dbhooks
+ Exporting database testsybase hooks into  /tmp/testsybase.dbhooks
+ Backup exported into /tmp/backup_metadata_dsource.txt
+ Backup exported into /tmp/backup_metadata_vdb.txt
+
+
+List masking status and jobs
+
+ dx_get_db_env -d Delphix32 -masking
+
+ Appliance  Hostname             Database                       Group           Type     SourceDB                       Masked     Masking job
+ ---------- -------------------- ------------------------------ --------------- -------- ------------------------------ ---------- ---------------
+ Delphix32  NA                   orcl_tar@LandsharkEngine       Sources@Landsha dSource                                 NO
+ Delphix32  CLUSTER              racdb                          Sources         dSource                                 NO
+ Delphix32  10.0.0.152           test1                          Sources         dSource                                 NO
+ Delphix32  10.0.0.152           maskvdb                        Test            VDB      test1                          YES        SCOTT_JOB
+
+Print cluster nodes in the host mode
+
+ dx_get_db_env -d mssqlao -cluster
+
+ Appliance            Hostname             Database                       Group           Type     SourceDB                       Parent snapshot                     Used [GB]  Status     Enabled    Unique Name                    Parent time                         VDB creation time                   VDB refresh time
+ -------------------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ---------- ------------------------------ ----------------------------------- ----------------------------------- -----------------------------------
+ mssqlao              host1.co;host2.co    DBOMSR1C571E                   Sources         dSource                                 N/A                                       1.67 RUNNING    enabled    DBOMSR1C571E                   N/A                                 2024-01-29 13:34:08                 N/A
+ mssqlao              host1.co;host2.co    slon                           Sources         VDB      DBOMSR1C571E                   2024-01-29 07:35:06 EST                   1.37 INACTIVE   enabled    slon                           2024-01-29 07:35:06 EST             2024-01-29 13:37:25                 2024-01-29 13:37:33
+ mssqlao              10.43.81.230;10.43.8 SQL2019DB                      Untitled        dSource                                 N/A                                       0.01 UNKNOWN    enabled    N/A                            N/A                                 2023-12-21 02:30:12                 N/A
+
+
+Print cluster nodes in the environment mode
+
+ dx_get_db_env -d mssqlao -cluster -hostenv e
+
+ Appliance            Env. name            Database                       Group           Type     SourceDB                       Parent snapshot                     Used [GB]  Status     Enabled    Unique Name                    Parent time                         VDB creation time                   VDB refresh time                    Host list
+ -------------------- -------------------- ------------------------------ --------------- -------- ------------------------------ ----------------------------------- ---------- ---------- ---------- ------------------------------ ----------------------------------- ----------------------------------- ----------------------------------- -----------------------------------
+ mssqlao              dxrac                DBOMSR1C571E                   Sources         dSource                                 N/A                                       1.67 RUNNING    enabled    DBOMSR1C571E                   N/A                                 2024-01-29 13:34:08                 N/A                                 host1.co;host2.co
+ mssqlao              dxrac                slon                           Sources         VDB      DBOMSR1C571E                   2024-01-29 07:35:06 EST                   1.37 INACTIVE   enabled    slon                           2024-01-29 07:35:06 EST             2024-01-29 13:37:25                 2024-01-29 13:37:33                 host1.co;host2.co
+ mssqlao              win19fleet-src       SQL2019DB                      Untitled        dSource                                 N/A                                       0.01 UNKNOWN    enabled    N/A                            N/A                                 2023-12-21 02:30:12                 N/A                                 10.43.81.230;10.43.81.205
+
+
+=cut

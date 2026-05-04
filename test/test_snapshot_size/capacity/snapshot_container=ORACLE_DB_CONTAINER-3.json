@@ -1,0 +1,25 @@
+{
+   "action" : null,
+   "type" : "ListResult",
+   "overflow" : false,
+   "total" : 1,
+   "job" : null,
+   "result" : [
+      {
+         "descendantVDBs" : [
+            "ORACLE_DB_CONTAINER-11"
+         ],
+         "policyRetention" : true,
+         "namespace" : null,
+         "space" : 13312,
+         "type" : "SnapshotCapacityData",
+         "manualRetention" : 0,
+         "snapshot" : "ORACLE_SNAPSHOT-6",
+         "container" : "ORACLE_DB_CONTAINER-3",
+         "snapshotTimestamp" : "2021-12-16T16:44:17.752Z",
+         "snapshotLatestChange" : "2021-12-16T16:44:15.000Z",
+         "snapshotTimezone" : "America/New_York,EST-0500"
+      }
+   ],
+   "status" : "OK"
+}
