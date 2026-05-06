@@ -10,20 +10,130 @@
 
 Dxtoolkit is a set of scripts, which are delivered by Delphix professional services team.
 Dxtoolkit scripts look and feel like UNIX executables, following the typical conventions of using flags for arguments.  Dxtoolkit is written in Perl, but no knowledge of Perl is required unless you want to extend it.  In fact, no programming experience whatsoever is required to use the dxtoolkit.
-### Python-only Usage (Lightweight Ports)
+### Python Executables (Lightweight Ports)
 
-Recent additions provide Python equivalents for common analytics and network reports:
-- `bin/dx_get_network_tests.py`: export latency/throughput test results to CSV/JSON.
-- `bin/dx_get_analytics.py`: export analytics raw + aggregated CSV/JSON for `cpu, disk, nfs, network`.
+Recent additions provide Python-based executables for common analytics and network reports:
+- `dx_get_network_tests`: export latency/throughput test results to CSV/JSON.
+- `dx_get_analytics`: export analytics raw + aggregated CSV/JSON for `cpu, disk, nfs, network`.
 
-Example commands:
+Example commands (using compiled binaries from `dist/<platform>/`):
 
 ```bash
-python3 bin/dx_get_network_tests.py -d <engine> -type latency -remoteaddr all -format csv
-python3 bin/dx_get_network_tests.py -d <engine> -type throughput -remoteaddr all -last -format csv
+dx_get_network_tests -d <engine> -type latency -remoteaddr all -format csv
+dx_get_network_tests -d <engine> -type throughput -remoteaddr all -last -format csv
 
-python3 bin/dx_get_analytics.py -d <engine> -type standard -i 60 -outdir /tmp -format csv
+dx_get_analytics -d <engine> -type standard -i 60 -outdir /tmp -format csv
 ```
+
+## Healthcheck CLI scripts
+
+Two equivalent scripts (`cli_v2.sh` for Linux/macOS, `cli_v2.ps1` for Windows) automate a full Delphix engine healthcheck — running network and storage tests, collecting analytics, and exporting capacity, appliance, and configuration data.
+
+### cli_v2.sh (Bash — Linux / macOS)
+
+```
+Usage:
+  ./cli_v2.sh -d <engine|all> -t <win|unix|both> -b <dxtoolkit_path> -o <output_dir>
+              [--address <fqdn_or_ip>] [--port <port>] [--protocol <http|https>]
+              [--password <admin_password>] [--sys-password <sysadmin_password>]
+              [--preserve-output] [-h|--help]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `-d <engine\|all>` | Yes | Engine alias from `dxtools.conf`, or `all` to run against every engine in the config. |
+| `-t <win\|unix\|both>` | Yes | Target environment OS type. Determines which analytics types are collected (`iscsi` for Windows, `nfs` for Unix, both if `both`). |
+| `-b <dxtoolkit_path>` | Yes | Path to the directory containing the dxtoolkit binaries (or `.py` source files). |
+| `-o <output_dir>` | Yes | Directory where output files are written. Created if it does not exist. |
+| `--address <fqdn_or_ip>` | No | Override the engine address when adding a new config row. Defaults to the alias name or existing config entry. |
+| `--port <port>` | No | Override the port. Defaults to `80` or the existing config value. |
+| `--protocol <http\|https>` | No | Override the protocol. Defaults to `http` or the existing config value. |
+| `--password <admin_password>` | No | Admin password. Prompted interactively if not supplied and the engine is not already in `dxtools.conf`. |
+| `--sys-password <sysadmin_password>` | No | Sysadmin password. Prompted interactively if not supplied and no existing sys row is found. |
+| `--preserve-output` | No | Keep any existing `analytics/` and `misc/` folders inside the output directory instead of clearing them. |
+| `-h`, `--help` | No | Display help and exit. |
+
+**Output files** (written under `<output_dir>/`):
+
+| File | Content |
+|------|---------|
+| `misc/<engine>_NL.csv` | Network latency test results |
+| `misc/<engine>_NT.csv` | Network throughput test results |
+| `misc/<engine>_capacity.csv` | Capacity report |
+| `misc/<engine>_appliance.csv` | Appliance/version info |
+| `misc/<engine>_config.csv` | System configuration (sysadmin) |
+| `misc/` (IORC files) | Storage test IORC data |
+| `analytics/` | Analytics CSVs (raw + aggregated) per metric type |
+
+**Required dxtoolkit binaries in `-b` path:**
+`dx_config`, `dx_ctl_network_tests`, `dx_ctl_bundle`, `dx_get_analytics`, `dx_get_capacity`, `dx_get_appliance`, `dx_get_storage_tests`, `dx_get_config`, `dx_get_network_tests`
+
+**Examples:**
+
+```bash
+# Single engine, Unix environments, with binaries in ./bin
+./cli_v2.sh -d myengine -t unix -b ./bin -o ./output
+
+# New engine not yet in dxtools.conf, pass credentials inline
+./cli_v2.sh -d myengine -t both -b ./bin -o ./output \
+  --address engine.example.com --protocol https \
+  --password adminSecret --sys-password sysSecret
+
+# All engines in dxtools.conf, preserve previous output
+./cli_v2.sh -d all -t unix -b ./bin -o ./output --preserve-output
+```
+
+> **Note:** Set `timeout` to `600` in `dxtools.conf` entries to prevent timeouts on long-running analytics and storage calls. The script backs up and restores `dxtools.conf` automatically on exit.
+
+---
+
+### cli_v2.ps1 (PowerShell — Windows)
+
+```
+Usage:
+  ./cli_v2.ps1 -d <engine|all> -t <win|unix|both> -b <dxtoolkit_path> -o <output_dir>
+               [--address <fqdn_or_ip>] [--port <port>] [--protocol <http|https>]
+               [--password <admin_password>] [--sys-password <sysadmin_password>]
+               [--preserve-output] [-h|--help]
+```
+
+The PowerShell script accepts identical flags to `cli_v2.sh` and produces the same output structure. The key difference is that it expects **Windows `.exe` binaries** in the `-b` path (e.g. `dx_get_analytics.exe`).
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `-d <engine\|all>` | Yes | Engine alias from `dxtools.conf`, or `all` for all engines. |
+| `-t <win\|unix\|both>` | Yes | Target OS type for analytics collection. |
+| `-b <dxtoolkit_path>` | Yes | Path to the directory containing the dxtoolkit `.exe` binaries. |
+| `-o <output_dir>` | Yes | Output directory. Created if it does not exist. |
+| `--address <fqdn_or_ip>` | No | Override engine address when adding a new config row. |
+| `--port <port>` | No | Override port (default `80`). |
+| `--protocol <http\|https>` | No | Override protocol (default `http`). |
+| `--password <admin_password>` | No | Admin password (prompted if omitted and engine not in config). |
+| `--sys-password <sysadmin_password>` | No | Sysadmin password (prompted if omitted). |
+| `--preserve-output` | No | Do not clear existing `analytics/` and `misc/` folders. |
+| `-h`, `--help` | No | Display help and exit. |
+
+**Required dxtoolkit `.exe` binaries in `-b` path:**
+`dx_config.exe`, `dx_ctl_network_tests.exe`, `dx_ctl_bundle.exe`, `dx_get_analytics.exe`, `dx_get_capacity.exe`, `dx_get_appliance.exe`, `dx_get_storage_tests.exe`, `dx_get_config.exe`, `dx_get_network_tests.exe`
+
+**Examples:**
+
+```powershell
+# Single engine, Windows environments
+./cli_v2.ps1 -d myengine -t win -b .\dist\windows -o .\output
+
+# New engine, pass all credentials inline
+./cli_v2.ps1 -d myengine -t both -b .\dist\windows -o .\output `
+  --address engine.example.com --protocol https `
+  --password adminSecret --sys-password sysSecret
+
+# All engines, preserve existing output
+./cli_v2.ps1 -d all -t unix -b .\dist\windows -o .\output --preserve-output
+```
+
+> **Note:** Run PowerShell as a user with write access to both the output directory and the dxtoolkit directory (needed to back up `dxtools.conf`). Long-running tool calls stream progress to the console every 5 seconds.
+
+---
 
 ## Building standalone binaries (PyInstaller)
 
@@ -34,7 +144,7 @@ Note: For Windows you must build on Windows (PowerShell/cmd) with Python+PyInsta
 pip install -r requirements.txt
 ```
 
-Build each Python entrypoint you need with PyInstaller. Example:
+Build each Python source file into a standalone binary with PyInstaller. Example:
 
 ```bash
 platform="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -52,21 +162,24 @@ for script in bin/*.py; do
     --specpath "build/pyinstaller/$platform" \
     "$script"
 done
+# Binaries land in dist/<platform>/ with no .py extension
 ```
 
-Converted Python entrypoints currently in `bin/`:
-- `dx_ctl_analytics.py`
-- `dx_ctl_bundle.py`
-- `dx_ctl_network_tests.py`
-- `dx_get_analytics.py`
-- `dx_get_appliance.py`
-- `dx_get_capacity.py`
-- `dx_get_config.py`
-- `dx_get_dsourcesize.py`
-- `dx_get_hierarchy.py`
-- `dx_get_jobs.py`
-- `dx_get_network_tests.py`
-- `dx_get_storage_tests.py`
+Compiled binaries produced in `dist/<platform>/`:
+- `dx_ctl_analytics`
+- `dx_ctl_bundle`
+- `dx_ctl_network_tests`
+- `dx_get_analytics`
+- `dx_get_appliance`
+- `dx_get_capacity`
+- `dx_get_config`
+- `dx_get_dsourcesize`
+- `dx_get_hierarchy`
+- `dx_get_jobs`
+- `dx_get_network_tests`
+- `dx_get_storage_tests`
+
+> **Windows note:** binaries carry a `.exe` suffix (e.g. `dx_get_analytics.exe`).
 
 Windows PowerShell equivalent:
 
@@ -79,6 +192,7 @@ Get-ChildItem bin\*.py | ForEach-Object {
     --specpath build/pyinstaller/windows `
     $_.FullName
 }
+# Binaries land in dist\windows\ as .exe files (e.g. dx_get_analytics.exe)
 ```
 
 Environment overrides:
