@@ -65,25 +65,20 @@ echo "Dxtoolkit Path: ${DXLOC}"
 # ---- check dxtoolkit tools exist and support source/binary layouts -----------
 require_tool() {
   local name="$1"
-  if [[ -f "${DXLOC}/${name}.py" || -f "${DXLOC}/${name}" ]]; then
+  if [[ -x "${DXLOC}/${name}" ]]; then
     return 0
   fi
-  echo "Missing ${DXLOC}/${name}[.py]"
+  echo "Missing executable ${DXLOC}/${name}"
   exit 1
 }
 
 run_tool() {
   local name="$1"
   shift
-  if [[ -f "${DXLOC}/${name}.py" ]]; then
-    python3 "${DXLOC}/${name}.py" "$@"
-  elif [[ -x "${DXLOC}/${name}" ]]; then
+  if [[ -x "${DXLOC}/${name}" ]]; then
     "${DXLOC}/${name}" "$@"
-  elif [[ -f "${DXLOC}/${name}" ]]; then
-    # Fallback for plain scripts without executable bit.
-    bash "${DXLOC}/${name}" "$@"
   else
-    echo "Missing ${DXLOC}/${name}[.py]"
+    echo "Missing executable ${DXLOC}/${name}"
     exit 1
   fi
 }
